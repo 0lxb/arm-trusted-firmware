@@ -1,5 +1,5 @@
 #
-# Copyright (c) 2016-2020, ARM Limited. All rights reserved.
+# Copyright (c) 2016-2021, ARM Limited. All rights reserved.
 #
 # SPDX-License-Identifier: BSD-3-Clause
 #
@@ -125,6 +125,9 @@ ENC_KEY	:= 1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef
 
 # Default dummy nonce for firmware encryption
 ENC_NONCE			:= 1234567890abcdef12345678
+
+# Flag to enable exception debug for AARCH32
+AARCH32_EXCEPTION_DEBUG		:= 0
 
 # Build flag to treat usage of deprecated platform and framework APIs as error.
 ERROR_DEPRECATED		:= 0
@@ -322,9 +325,6 @@ RAS_TRAP_LOWER_EL_ERR_ACCESS	:= 0
 
 # Build option to create cot descriptors using fconf
 COT_DESC_IN_DTB			:= 0
-
-# Build option to provide openssl directory path
-OPENSSL_DIR			:= /usr
 
 # Build option to use the SP804 timer instead of the generic one
 USE_SP804_TIMER			:= 0

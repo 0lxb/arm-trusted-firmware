@@ -15,6 +15,7 @@
 #include <arch.h>
 #include <arch_helpers.h>
 #include <common/debug.h>
+#include <drivers/clk.h>
 #include <drivers/delay_timer.h>
 #include <drivers/mmc.h>
 #include <drivers/st/stm32_gpio.h>
@@ -50,6 +51,7 @@
 
 /* SDMMC power control register */
 #define SDMMC_POWER_PWRCTRL		GENMASK(1, 0)
+#define SDMMC_POWER_PWRCTRL_PWR_CYCLE	BIT(1)
 #define SDMMC_POWER_DIRPOL		BIT(4)
 
 /* SDMMC clock control register */
@@ -117,6 +119,13 @@
 #define TIMEOUT_US_10_MS		10000U
 #define TIMEOUT_US_1_S			1000000U
 
+/* Power cycle delays in ms */
+#define VCC_POWER_OFF_DELAY		2
+#define VCC_POWER_ON_DELAY		2
+#define POWER_CYCLE_DELAY		2
+#define POWER_OFF_DELAY			2
+#define POWER_ON_DELAY			1
+
 #define DT_SDMMC2_COMPAT		"st,stm32-sdmmc2"
 
 static void stm32_sdmmc2_init(void);
@@ -138,10 +147,33 @@ static const struct mmc_ops stm32_sdmmc2_ops = {
 
 static struct stm32_sdmmc2_params sdmmc2_params;
 
+static bool next_cmd_is_acmd;
+
 #pragma weak plat_sdmmc2_use_dma
 bool plat_sdmmc2_use_dma(unsigned int instance, unsigned int memory)
 {
 	return false;
+}
+
+static void dump_registers(void)
+{
+	uintptr_t base = sdmmc2_params.reg_base;
+
+	INFO("SDMMC_POWER    = 0x%x\n", mmio_read_32(base + SDMMC_POWER));
+	INFO("SDMMC_CLKCR    = 0x%x\n", mmio_read_32(base + SDMMC_CLKCR));
+	INFO("SDMMC_ARGR     = 0x%x\n", mmio_read_32(base + SDMMC_ARGR));
+	INFO("SDMMC_CMDR     = 0x%x\n", mmio_read_32(base + SDMMC_CMDR));
+	INFO("SDMMC_RESPCMDR = 0x%x\n", mmio_read_32(base + SDMMC_RESPCMDR));
+	INFO("SDMMC_RESP1R   = 0x%x\n", mmio_read_32(base + SDMMC_RESP1R));
+	INFO("SDMMC_RESP2R   = 0x%x\n", mmio_read_32(base + SDMMC_RESP2R));
+	INFO("SDMMC_RESP3R   = 0x%x\n", mmio_read_32(base + SDMMC_RESP3R));
+	INFO("SDMMC_RESP4R   = 0x%x\n", mmio_read_32(base + SDMMC_RESP4R));
+	INFO("SDMMC_DTIMER   = 0x%x\n", mmio_read_32(base + SDMMC_DTIMER));
+	INFO("SDMMC_DLENR    = 0x%x\n", mmio_read_32(base + SDMMC_DLENR));
+	INFO("SDMMC_DCTRLR   = 0x%x\n", mmio_read_32(base + SDMMC_DCTRLR));
+	INFO("SDMMC_DCNTR    = 0x%x\n", mmio_read_32(base + SDMMC_DCNTR));
+	INFO("SDMMC_MASKR    = 0x%x\n", mmio_read_32(base + SDMMC_MASKR));
+	INFO("SDMMC_ACKTIMER = 0x%x\n", mmio_read_32(base + SDMMC_ACKTIMER));
 }
 
 static void stm32_sdmmc2_init(void)
@@ -154,6 +186,26 @@ static void stm32_sdmmc2_init(void)
 		freq = MIN(sdmmc2_params.max_freq, freq);
 	}
 
+	if (sdmmc2_params.vmmc_regu.id != -1) {
+		stm32mp_regulator_register(&sdmmc2_params.vmmc_regu);
+		stm32mp_regulator_disable(&sdmmc2_params.vmmc_regu);
+	}
+
+	mdelay(VCC_POWER_OFF_DELAY);
+
+	mmio_write_32(base + SDMMC_POWER,
+		      SDMMC_POWER_PWRCTRL_PWR_CYCLE | sdmmc2_params.dirpol);
+	mdelay(POWER_CYCLE_DELAY);
+
+	if (sdmmc2_params.vmmc_regu.id != -1) {
+		stm32mp_regulator_enable(&sdmmc2_params.vmmc_regu);
+	}
+
+	mdelay(VCC_POWER_ON_DELAY);
+
+	mmio_write_32(base + SDMMC_POWER, sdmmc2_params.dirpol);
+	mdelay(POWER_OFF_DELAY);
+
 	clock_div = div_round_up(sdmmc2_params.clk_rate, freq * 2U);
 
 	mmio_write_32(base + SDMMC_CLKCR, SDMMC_CLKCR_HWFC_EN | clock_div |
@@ -163,7 +215,7 @@ static void stm32_sdmmc2_init(void)
 	mmio_write_32(base + SDMMC_POWER,
 		      SDMMC_POWER_PWRCTRL | sdmmc2_params.dirpol);
 
-	mdelay(1);
+	mdelay(POWER_ON_DELAY);
 }
 
 static int stm32_sdmmc2_stop_transfer(void)
@@ -221,6 +273,20 @@ static int stm32_sdmmc2_send_cmd_req(struct mmc_cmd *cmd)
 	case MMC_CMD(1):
 		arg_reg |= OCR_POWERUP;
 		break;
+	case MMC_CMD(6):
+		if ((sdmmc2_params.device_info->mmc_dev_type == MMC_IS_SD_HC) &&
+		    (!next_cmd_is_acmd)) {
+			cmd_reg |= SDMMC_CMDR_CMDTRANS;
+			if (sdmmc2_params.use_dma) {
+				flags_data |= SDMMC_STAR_DCRCFAIL |
+					SDMMC_STAR_DTIMEOUT |
+					SDMMC_STAR_DATAEND |
+					SDMMC_STAR_RXOVERR |
+					SDMMC_STAR_IDMATE |
+					SDMMC_STAR_DBCKEND;
+			}
+		}
+		break;
 	case MMC_CMD(8):
 		if (sdmmc2_params.device_info->mmc_dev_type == MMC_IS_EMMC) {
 			cmd_reg |= SDMMC_CMDR_CMDTRANS;
@@ -258,6 +324,8 @@ static int stm32_sdmmc2_send_cmd_req(struct mmc_cmd *cmd)
 		break;
 	}
 
+	next_cmd_is_acmd = (cmd->cmd_idx == MMC_CMD(55));
+
 	mmio_write_32(base + SDMMC_ICR, SDMMC_STATIC_FLAGS);
 
 	/*
@@ -265,8 +333,7 @@ static int stm32_sdmmc2_send_cmd_req(struct mmc_cmd *cmd)
 	 * Skip CMD55 as the next command could be data related, and
 	 * the register could have been set in prepare function.
 	 */
-	if (((cmd_reg & SDMMC_CMDR_CMDTRANS) == 0U) &&
-	    (cmd->cmd_idx != MMC_CMD(55))) {
+	if (((cmd_reg & SDMMC_CMDR_CMDTRANS) == 0U) && !next_cmd_is_acmd) {
 		mmio_write_32(base + SDMMC_DCTRLR, 0U);
 	}
 
@@ -563,6 +630,7 @@ static int stm32_sdmmc2_read(int lba, uintptr_t buf, size_t size)
 		if ((status & error_flags) != 0U) {
 			ERROR("%s: Read error (status = %x)\n", __func__,
 			      status);
+			dump_registers();
 			mmio_write_32(base + SDMMC_DCTRLR,
 				      SDMMC_DCTRLR_FIFORST);
 
@@ -580,6 +648,7 @@ static int stm32_sdmmc2_read(int lba, uintptr_t buf, size_t size)
 		if (timeout_elapsed(timeout)) {
 			ERROR("%s: timeout 1s (status = %x)\n",
 			      __func__, status);
+			dump_registers();
 			mmio_write_32(base + SDMMC_ICR,
 				      SDMMC_STATIC_FLAGS);
 
@@ -628,6 +697,7 @@ static int stm32_sdmmc2_dt_get_config(void)
 	int sdmmc_node;
 	void *fdt = NULL;
 	const fdt32_t *cuint;
+	struct dt_node_info dt_info;
 
 	if (fdt_get_address(&fdt) == 0) {
 		return -FDT_ERR_NOTFOUND;
@@ -637,27 +707,14 @@ static int stm32_sdmmc2_dt_get_config(void)
 		return -FDT_ERR_NOTFOUND;
 	}
 
-	sdmmc_node = fdt_node_offset_by_compatible(fdt, -1, DT_SDMMC2_COMPAT);
-
-	while (sdmmc_node != -FDT_ERR_NOTFOUND) {
-		cuint = fdt_getprop(fdt, sdmmc_node, "reg", NULL);
-		if (cuint == NULL) {
-			continue;
-		}
-
-		if (fdt32_to_cpu(*cuint) == sdmmc2_params.reg_base) {
-			break;
-		}
-
-		sdmmc_node = fdt_node_offset_by_compatible(fdt, sdmmc_node,
-							   DT_SDMMC2_COMPAT);
-	}
-
+	sdmmc_node = dt_match_instance_by_compatible(DT_SDMMC2_COMPAT,
+						     sdmmc2_params.reg_base);
 	if (sdmmc_node == -FDT_ERR_NOTFOUND) {
 		return -FDT_ERR_NOTFOUND;
 	}
 
-	if (fdt_get_status(sdmmc_node) == DT_DISABLED) {
+	dt_fill_device_info(&dt_info, sdmmc_node);
+	if (dt_info.status == DT_DISABLED) {
 		return -FDT_ERR_NOTFOUND;
 	}
 
@@ -665,21 +722,8 @@ static int stm32_sdmmc2_dt_get_config(void)
 		return -FDT_ERR_BADVALUE;
 	}
 
-	cuint = fdt_getprop(fdt, sdmmc_node, "clocks", NULL);
-	if (cuint == NULL) {
-		return -FDT_ERR_NOTFOUND;
-	}
-
-	cuint++;
-	sdmmc2_params.clock_id = fdt32_to_cpu(*cuint);
-
-	cuint = fdt_getprop(fdt, sdmmc_node, "resets", NULL);
-	if (cuint == NULL) {
-		return -FDT_ERR_NOTFOUND;
-	}
-
-	cuint++;
-	sdmmc2_params.reset_id = fdt32_to_cpu(*cuint);
+	sdmmc2_params.clock_id = dt_info.clock;
+	sdmmc2_params.reset_id = dt_info.reset;
 
 	if ((fdt_getprop(fdt, sdmmc_node, "st,use-ckin", NULL)) != NULL) {
 		sdmmc2_params.pin_ckin = SDMMC_CLKCR_SELCLKRX_0;
@@ -714,6 +758,11 @@ static int stm32_sdmmc2_dt_get_config(void)
 		sdmmc2_params.max_freq = fdt32_to_cpu(*cuint);
 	}
 
+	cuint = fdt_getprop(fdt, sdmmc_node, "vmmc-supply", NULL);
+	if (cuint != NULL) {
+		sdmmc2_params.vmmc_regu.id = fdt32_to_cpu(*cuint);
+	}
+
 	return 0;
 }
 
@@ -734,12 +783,14 @@ int stm32_sdmmc2_mmc_init(struct stm32_sdmmc2_params *params)
 
 	memcpy(&sdmmc2_params, params, sizeof(struct stm32_sdmmc2_params));
 
+	sdmmc2_params.vmmc_regu.id = -1;
+
 	if (stm32_sdmmc2_dt_get_config() != 0) {
 		ERROR("%s: DT error\n", __func__);
 		return -ENOMEM;
 	}
 
-	stm32mp_clk_enable(sdmmc2_params.clock_id);
+	clk_enable(sdmmc2_params.clock_id);
 
 	rc = stm32mp_reset_assert(sdmmc2_params.reset_id, TIMEOUT_US_1_MS);
 	if (rc != 0) {
@@ -752,7 +803,7 @@ int stm32_sdmmc2_mmc_init(struct stm32_sdmmc2_params *params)
 	}
 	mdelay(1);
 
-	sdmmc2_params.clk_rate = stm32mp_clk_get_rate(sdmmc2_params.clock_id);
+	sdmmc2_params.clk_rate = clk_get_rate(sdmmc2_params.clock_id);
 	sdmmc2_params.device_info->ocr_voltage = OCR_3_2_3_3 | OCR_3_3_3_4;
 
 	return mmc_init(&stm32_sdmmc2_ops, sdmmc2_params.clk_rate,

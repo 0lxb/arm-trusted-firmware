@@ -109,6 +109,11 @@ unsigned int plat_ic_get_interrupt_id(unsigned int raw);
  ******************************************************************************/
 uintptr_t plat_get_my_stack(void);
 void plat_report_exception(unsigned int exception_type);
+#if AARCH32_EXCEPTION_DEBUG
+void plat_report_undef_inst(unsigned int fault_address);
+void plat_report_prefetch_abort(unsigned int fault_address);
+void plat_report_data_abort(unsigned int fault_address);
+#endif
 int plat_crash_console_init(void);
 int plat_crash_console_putc(int c);
 void plat_crash_console_flush(void);
@@ -116,7 +121,7 @@ void plat_error_handler(int err) __dead2;
 void plat_panic_handler(void) __dead2;
 const char *plat_log_get_prefix(unsigned int log_level);
 void bl2_plat_preload_setup(void);
-int plat_try_next_boot_source(void);
+int plat_try_next_boot_source(unsigned int image_id);
 
 /*******************************************************************************
  * Mandatory BL1 functions
@@ -284,6 +289,8 @@ int plat_get_nv_ctr(void *cookie, unsigned int *nv_ctr);
 int plat_set_nv_ctr(void *cookie, unsigned int nv_ctr);
 int plat_set_nv_ctr2(void *cookie, const struct auth_img_desc_s *img_desc,
 		unsigned int nv_ctr);
+int plat_get_hashed_pk(void *full_pk_ptr, unsigned int full_pk_len,
+		       void **hashed_pk_ptr, unsigned int *hash_pk_len);
 int get_mbedtls_heap_helper(void **heap_addr, size_t *heap_size);
 int plat_get_enc_key_info(enum fw_enc_status_t fw_enc_status, uint8_t *key,
 			  size_t *key_len, unsigned int *flags,

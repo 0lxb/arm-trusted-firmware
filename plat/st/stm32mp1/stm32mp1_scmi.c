@@ -8,12 +8,14 @@
 
 #include <platform_def.h>
 
+#include <drivers/clk.h>
 #include <drivers/st/scmi-msg.h>
 #include <drivers/st/scmi.h>
 #include <drivers/st/stm32mp1_clk.h>
 #include <drivers/st/stm32mp_reset.h>
 #include <dt-bindings/clock/stm32mp1-clks.h>
 #include <dt-bindings/reset/stm32mp1-resets.h>
+#include <lib/utils.h>
 
 #define TIMEOUT_US_1MS		1000U
 
@@ -124,6 +126,7 @@ static struct stm32_scmi_rstd stm32_scmi0_reset_domain[] = {
 	RESET_CELL(RST_SCMI0_RNG1, RNG1_R, "rng1"),
 	RESET_CELL(RST_SCMI0_MDMA, MDMA_R, "mdma"),
 	RESET_CELL(RST_SCMI0_MCU, MCU_R, "mcu"),
+	RESET_CELL(RST_SCMI0_MCU_HOLD_BOOT, MCU_HOLD_BOOT_R, "mcu_hold_boot"),
 };
 
 struct scmi_agent_resources {
@@ -261,6 +264,17 @@ const char *plat_scmi_clock_get_name(unsigned int agent_id,
 int32_t plat_scmi_clock_rates_array(unsigned int agent_id, unsigned int scmi_id,
 				    unsigned long *array, size_t *nb_elts)
 {
+	/*
+	 * Do not expose clock rates by array since not supported by
+	 * Linux kernel
+	 */
+	return SCMI_NOT_SUPPORTED;
+}
+
+int32_t plat_scmi_clock_rates_by_step(unsigned int agent_id,
+				      unsigned int scmi_id,
+				      unsigned long *array)
+{
 	struct stm32_scmi_clk *clock = find_clock(agent_id, scmi_id);
 
 	if (clock == NULL) {
@@ -271,12 +285,50 @@ int32_t plat_scmi_clock_rates_array(unsigned int agent_id, unsigned int scmi_id,
 		return SCMI_DENIED;
 	}
 
-	if (array == NULL) {
-		*nb_elts = 1U;
-	} else if (*nb_elts == 1U) {
-		*array = stm32mp_clk_get_rate(clock->clock_id);
-	} else {
-		return SCMI_GENERIC_ERROR;
+	switch (scmi_id) {
+	case CK_SCMI0_MPU:
+		/*
+		 * Pretend we support all rates for MPU clock,
+		 * CLOCK_RATE_SET will reject unsupported rates.
+		 */
+		array[0] = 0U;
+		array[1] = UINT32_MAX;
+		array[2] = 1U;
+		break;
+	default:
+		array[0] = clk_get_rate(clock->clock_id);
+		array[1] = array[0];
+		array[2] = 0U;
+		break;
+	}
+	return SCMI_SUCCESS;
+}
+
+int32_t plat_scmi_clock_set_rate(unsigned int agent_id,
+				 unsigned int scmi_id,
+				 unsigned long rate)
+{
+	struct stm32_scmi_clk *clock = find_clock(agent_id, scmi_id);
+
+	if (clock == NULL) {
+		return SCMI_NOT_FOUND;
+	}
+
+	if (!stm32mp_nsec_can_access_clock(clock->clock_id)) {
+		return SCMI_DENIED;
+	}
+
+	switch (scmi_id) {
+	case CK_SCMI0_MPU:
+		if (stm32mp1_set_opp_khz(rate / 1000UL) != 0) {
+			return SCMI_INVALID_PARAMETERS;
+		}
+		break;
+	default:
+		if (rate != clk_get_rate(clock->clock_id)) {
+			return SCMI_INVALID_PARAMETERS;
+		}
+		break;
 	}
 
 	return SCMI_SUCCESS;
@@ -292,7 +344,7 @@ unsigned long plat_scmi_clock_get_rate(unsigned int agent_id,
 		return 0U;
 	}
 
-	return stm32mp_clk_get_rate(clock->clock_id);
+	return clk_get_rate(clock->clock_id);
 }
 
 int32_t plat_scmi_clock_get_state(unsigned int agent_id, unsigned int scmi_id)
@@ -323,13 +375,13 @@ int32_t plat_scmi_clock_set_state(unsigned int agent_id, unsigned int scmi_id,
 	if (enable_not_disable) {
 		if (!clock->enabled) {
 			VERBOSE("SCMI clock %u enable\n", scmi_id);
-			stm32mp_clk_enable(clock->clock_id);
+			clk_enable(clock->clock_id);
 			clock->enabled = true;
 		}
 	} else {
 		if (clock->enabled) {
 			VERBOSE("SCMI clock %u disable\n", scmi_id);
-			stm32mp_clk_disable(clock->clock_id);
+			clk_disable(clock->clock_id);
 			clock->enabled = false;
 		}
 	}
@@ -388,6 +440,10 @@ int32_t plat_scmi_rstd_autonomous(unsigned int agent_id, unsigned int scmi_id,
 		return SCMI_NOT_FOUND;
 	}
 
+	if (rstd->reset_id == MCU_HOLD_BOOT_R) {
+		return SCMI_NOT_SUPPORTED;
+	}
+
 	if (!stm32mp_nsec_can_access_reset(rstd->reset_id)) {
 		return SCMI_DENIED;
 	}
@@ -421,6 +477,13 @@ int32_t plat_scmi_rstd_set_state(unsigned int agent_id, unsigned int scmi_id,
 
 	if (!stm32mp_nsec_can_access_reset(rstd->reset_id)) {
 		return SCMI_DENIED;
+	}
+
+	if (rstd->reset_id == MCU_HOLD_BOOT_R) {
+		VERBOSE("SCMI MCU reset %s\n",
+			assert_not_deassert ? "set" : "release");
+		stm32mp_reset_assert_deassert_to_mcu(assert_not_deassert);
+		return SCMI_SUCCESS;
 	}
 
 	if (assert_not_deassert) {
@@ -461,7 +524,7 @@ void stm32mp1_init_scmi_server(void)
 			/* Sync SCMI clocks with their targeted initial state */
 			if (clk->enabled &&
 			    stm32mp_nsec_can_access_clock(clk->clock_id)) {
-				stm32mp_clk_enable(clk->clock_id);
+				clk_enable(clk->clock_id);
 			}
 		}
 
@@ -473,6 +536,54 @@ void stm32mp1_init_scmi_server(void)
 				ERROR("Invalid SCMI reset domain name\n");
 				panic();
 			}
+		}
+	}
+}
+
+/*
+ * Save and restore SCMI state since lost during suspend.
+ * Only clock enabled field needs to be updated.
+ */
+void stm32mp1_pm_save_scmi_state(uint8_t *state, size_t size)
+{
+	size_t i;
+	size_t j;
+	size_t cnt = 0U;
+
+	zeromem(state, size);
+
+	for (i = 0U; i < ARRAY_SIZE(agent_resources); i++) {
+		for (j = 0U; j < agent_resources[i].clock_count; j++) {
+			if ((cnt / 8) > size) {
+				VERBOSE("state table too small\n");
+				panic();
+			}
+
+			if (agent_resources[i].clock[j].enabled) {
+				*(state + (cnt / 8)) |= (uint8_t)BIT(cnt % 8);
+			}
+
+			cnt++;
+		}
+	}
+}
+
+void stm32mp1_pm_restore_scmi_state(uint8_t *state, size_t size)
+{
+	size_t i;
+	size_t j;
+	size_t cnt = 0U;
+
+	for (i = 0U; i < ARRAY_SIZE(agent_resources); i++) {
+		for (j = 0U; j < agent_resources[i].clock_count; j++) {
+			if ((*(state + (cnt / 8)) & BIT(cnt % 8)) == 0U) {
+				agent_resources[i].clock[j].enabled = 0;
+			} else {
+				agent_resources[i].clock[j].enabled = 1;
+			}
+
+			assert((cnt / 8) <= size);
+			cnt++;
 		}
 	}
 }

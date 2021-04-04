@@ -19,7 +19,39 @@
 			compatible = "arm,cortex-a7";
 			device_type = "cpu";
 			reg = <0>;
+			clocks = <&rcc CK_MPU>;
+			clock-names = "cpu";
+			operating-points-v2 = <&cpu0_opp_table>;
+			nvmem-cells = <&part_number_otp>;
+			nvmem-cell-names = "part_number";
 		};
+	};
+
+	cpu0_opp_table: cpu0-opp-table {
+		compatible = "operating-points-v2";
+		opp-shared;
+	};
+
+	nvmem_layout: nvmem_layout@0 {
+		compatible = "st,stm32-nvmem-layout";
+
+		nvmem-cells = <&cfg0_otp>,
+			      <&part_number_otp>,
+			      <&monotonic_otp>,
+			      <&nand_otp>,
+			      <&uid_otp>,
+			      <&package_otp>,
+			      <&hw2_otp>,
+			      <&pkh_otp>;
+
+		nvmem-cell-names = "cfg0_otp",
+				   "part_number_otp",
+				   "monotonic_otp",
+				   "nand_otp",
+				   "uid_otp",
+				   "package_otp",
+				   "hw2_otp",
+				   "pkh_otp";
 	};
 
 	psci {
@@ -82,12 +114,13 @@
 			clocks = <&rcc TIM12_K>;
 			clock-names = "int";
 			status = "disabled";
+			secure-status = "disabled";
 		};
 
 		usart2: serial@4000e000 {
 			compatible = "st,stm32h7-uart";
 			reg = <0x4000e000 0x400>;
-			interrupts-extended = <&exti 27 IRQ_TYPE_LEVEL_HIGH>;
+			interrupts = <GIC_SPI 38 IRQ_TYPE_LEVEL_HIGH>;
 			clocks = <&rcc USART2_K>;
 			resets = <&rcc USART2_R>;
 			status = "disabled";
@@ -96,7 +129,7 @@
 		usart3: serial@4000f000 {
 			compatible = "st,stm32h7-uart";
 			reg = <0x4000f000 0x400>;
-			interrupts-extended = <&exti 28 IRQ_TYPE_LEVEL_HIGH>;
+			interrupts = <GIC_SPI 39 IRQ_TYPE_LEVEL_HIGH>;
 			clocks = <&rcc USART3_K>;
 			resets = <&rcc USART3_R>;
 			status = "disabled";
@@ -115,7 +148,7 @@
 		uart5: serial@40011000 {
 			compatible = "st,stm32h7-uart";
 			reg = <0x40011000 0x400>;
-			interrupts-extended = <&exti 31 IRQ_TYPE_LEVEL_HIGH>;
+			interrupts = <GIC_SPI 53 IRQ_TYPE_LEVEL_HIGH>;
 			clocks = <&rcc UART5_K>;
 			resets = <&rcc UART5_R>;
 			status = "disabled";
@@ -124,7 +157,7 @@
 		uart7: serial@40018000 {
 			compatible = "st,stm32h7-uart";
 			reg = <0x40018000 0x400>;
-			interrupts-extended = <&exti 32 IRQ_TYPE_LEVEL_HIGH>;
+			interrupts = <GIC_SPI 82 IRQ_TYPE_LEVEL_HIGH>;
 			clocks = <&rcc UART7_K>;
 			resets = <&rcc UART7_R>;
 			status = "disabled";
@@ -133,7 +166,7 @@
 		uart8: serial@40019000 {
 			compatible = "st,stm32h7-uart";
 			reg = <0x40019000 0x400>;
-			interrupts-extended = <&exti 33 IRQ_TYPE_LEVEL_HIGH>;
+			interrupts = <GIC_SPI 83 IRQ_TYPE_LEVEL_HIGH>;
 			clocks = <&rcc UART8_K>;
 			resets = <&rcc UART8_R>;
 			status = "disabled";
@@ -142,7 +175,7 @@
 		usart6: serial@44003000 {
 			compatible = "st,stm32h7-uart";
 			reg = <0x44003000 0x400>;
-			interrupts-extended = <&exti 29 IRQ_TYPE_LEVEL_HIGH>;
+			interrupts = <GIC_SPI 71 IRQ_TYPE_LEVEL_HIGH>;
 			clocks = <&rcc USART6_K>;
 			resets = <&rcc USART6_R>;
 			status = "disabled";
@@ -156,16 +189,17 @@
 			clocks = <&rcc TIM15_K>;
 			clock-names = "int";
 			status = "disabled";
+			secure-status = "disabled";
 		};
 
 		usbotg_hs: usb-otg@49000000 {
-			compatible = "st,stm32mp1-hsotg", "snps,dwc2";
+			compatible = "st,stm32mp15-hsotg", "snps,dwc2";
 			reg = <0x49000000 0x10000>;
 			clocks = <&rcc USBO_K>;
 			clock-names = "otg";
 			resets = <&rcc USBO_R>;
 			reset-names = "dwc2";
-			interrupts-extended = <&exti 44 IRQ_TYPE_LEVEL_HIGH>;
+			interrupts = <GIC_SPI 98 IRQ_TYPE_LEVEL_HIGH>;
 			g-rx-fifo-size = <512>;
 			g-np-tx-fifo-size = <32>;
 			g-tx-fifo-size = <256 16 16 16 16 16 16 16>;
@@ -175,7 +209,7 @@
 		};
 
 		rcc: rcc@50000000 {
-			compatible = "st,stm32mp1-rcc", "syscon";
+			compatible = "st,stm32mp1-rcc-secure", "st,stm32mp1-rcc", "syscon";
 			reg = <0x50000000 0x1000>;
 			#address-cells = <1>;
 			#size-cells = <0>;
@@ -254,6 +288,7 @@
 			clocks = <&rcc HASH1>;
 			resets = <&rcc HASH1_R>;
 			status = "disabled";
+			secure-status = "disabled";
 		};
 
 		rng1: rng@54003000 {
@@ -262,6 +297,7 @@
 			clocks = <&rcc RNG1_K>;
 			resets = <&rcc RNG1_R>;
 			status = "disabled";
+			secure-status = "disabled";
 		};
 
 		fmc: memory-controller@58002000 {
@@ -301,6 +337,8 @@
 			interrupts = <GIC_SPI 92 IRQ_TYPE_LEVEL_HIGH>;
 			clocks = <&rcc QSPI_K>;
 			resets = <&rcc QSPI_R>;
+			#address-cells = <1>;
+			#size-cells = <0>;
 			status = "disabled";
 		};
 
@@ -341,6 +379,7 @@
 			clocks = <&rcc IWDG2>, <&rcc CK_LSI>;
 			clock-names = "pclk", "lsi";
 			status = "disabled";
+			secure-status = "disabled";
 		};
 
 		usbphyc: usbphyc@5a006000 {
@@ -373,6 +412,7 @@
 			clocks = <&rcc USART1_K>;
 			resets = <&rcc USART1_R>;
 			status = "disabled";
+			secure-status = "disabled";
 		};
 
 		spi6: spi@5c001000 {
@@ -384,6 +424,7 @@
 			clocks = <&rcc SPI6_K>;
 			resets = <&rcc SPI6_R>;
 			status = "disabled";
+			secure-status = "disabled";
 		};
 
 		i2c4: i2c@5c002000 {
@@ -399,6 +440,7 @@
 			st,syscfg-fmp = <&syscfg 0x4 0x8>;
 			wakeup-source;
 			status = "disabled";
+			secure-status = "disabled";
 		};
 
 		iwdg1: watchdog@5c003000 {
@@ -408,6 +450,7 @@
 			clocks = <&rcc IWDG1>, <&rcc CK_LSI>;
 			clock-names = "pclk", "lsi";
 			status = "disabled";
+			secure-status = "disabled";
 		};
 
 		rtc: rtc@5c004000 {
@@ -417,18 +460,48 @@
 			clock-names = "pclk", "rtc_ck";
 			interrupts-extended = <&exti 19 IRQ_TYPE_LEVEL_HIGH>;
 			status = "disabled";
+			secure-status = "disabled";
 		};
 
-		bsec: nvmem@5c005000 {
+		bsec: efuse@5c005000 {
 			compatible = "st,stm32mp15-bsec";
 			reg = <0x5c005000 0x400>;
 			#address-cells = <1>;
 			#size-cells = <1>;
+
+			cfg0_otp: cfg0_otp@0 {
+				reg = <0x0 0x1>;
+			};
+			part_number_otp: part_number_otp@4 {
+				reg = <0x4 0x1>;
+			};
+			monotonic_otp: monotonic_otp@10 {
+				reg = <0x10 0x4>;
+			};
+			nand_otp: nand_otp@24 {
+				reg = <0x24 0x4>;
+			};
+			uid_otp: uid_otp@34 {
+				reg = <0x34 0xc>;
+			};
+			package_otp: package_otp@40 {
+				reg = <0x40 0x4>;
+			};
+			hw2_otp: hw2_otp@48 {
+				reg = <0x48 0x4>;
+			};
 			ts_cal1: calib@5c {
 				reg = <0x5c 0x2>;
 			};
 			ts_cal2: calib@5e {
 				reg = <0x5e 0x2>;
+			};
+			pkh_otp: pkh_otp@60 {
+				reg = <0x60 0x20>;
+			};
+			ethernet_mac_address: mac@e4 {
+				reg = <0xe4 0x8>;
+				st,non-secure-otp;
 			};
 		};
 
@@ -458,6 +531,7 @@
 			st,syscfg-fmp = <&syscfg 0x4 0x20>;
 			wakeup-source;
 			status = "disabled";
+			secure-status = "disabled";
 		};
 
 		tamp: tamp@5c00a000 {
@@ -621,6 +695,7 @@
 				st,bank-name = "GPIOZ";
 				st,bank-ioport = <11>;
 				status = "disabled";
+				secure-status = "disabled";
 			};
 		};
 	};

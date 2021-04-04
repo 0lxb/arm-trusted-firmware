@@ -8,9 +8,6 @@
 #define STM32MP1_DDR_H
 
 #include <stdbool.h>
-#include <stdint.h>
-
-#define DT_DDR_COMPAT	"st,stm32mp1-ddr"
 
 struct stm32mp1_ddr_size {
 	uint64_t base;
@@ -101,12 +98,14 @@ struct stm32mp1_ddrctrl_perf {
 	uint32_t pcfgqos1_0;
 	uint32_t pcfgwqos0_0;
 	uint32_t pcfgwqos1_0;
+#if STM32MP_DDR_DUAL_AXI_PORT
 	uint32_t pcfgr_1;
 	uint32_t pcfgw_1;
 	uint32_t pcfgqos0_1;
 	uint32_t pcfgqos1_1;
 	uint32_t pcfgwqos0_1;
 	uint32_t pcfgwqos1_1;
+#endif
 };
 
 struct stm32mp1_ddrphy_reg {
@@ -119,8 +118,10 @@ struct stm32mp1_ddrphy_reg {
 	uint32_t zq0cr1;
 	uint32_t dx0gcr;
 	uint32_t dx1gcr;
+#if STM32MP_DDR_DUAL_AXI_PORT
 	uint32_t dx2gcr;
 	uint32_t dx3gcr;
+#endif
 };
 
 struct stm32mp1_ddrphy_timing {
@@ -143,12 +144,14 @@ struct stm32mp1_ddrphy_cal {
 	uint32_t dx1dllcr;
 	uint32_t dx1dqtr;
 	uint32_t dx1dqstr;
+#if STM32MP_DDR_DUAL_AXI_PORT
 	uint32_t dx2dllcr;
 	uint32_t dx2dqtr;
 	uint32_t dx2dqstr;
 	uint32_t dx3dllcr;
 	uint32_t dx3dqtr;
 	uint32_t dx3dqstr;
+#endif
 };
 
 struct stm32mp1_ddr_info {
@@ -166,9 +169,13 @@ struct stm32mp1_ddr_config {
 	struct stm32mp1_ddrphy_reg p_reg;
 	struct stm32mp1_ddrphy_timing p_timing;
 	struct stm32mp1_ddrphy_cal p_cal;
+	bool p_cal_present;
+	bool self_refresh;
+	uint32_t zdata;
 };
 
 int stm32mp1_ddr_clk_enable(struct ddr_info *priv, uint32_t mem_speed);
 void stm32mp1_ddr_init(struct ddr_info *priv,
 		       struct stm32mp1_ddr_config *config);
+
 #endif /* STM32MP1_DDR_H */

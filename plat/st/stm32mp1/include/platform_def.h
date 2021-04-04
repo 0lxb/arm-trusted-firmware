@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2015-2019, ARM Limited and Contributors. All rights reserved.
+ * Copyright (c) 2015-2021, ARM Limited and Contributors. All rights reserved.
  *
  * SPDX-License-Identifier: BSD-3-Clause
  */
@@ -25,18 +25,22 @@
 #define PLATFORM_STACK_SIZE		0xC00
 #endif
 
+#if STM32MP_USE_STM32IMAGE
 #ifdef AARCH32_SP_OPTEE
 #define OPTEE_HEADER_IMAGE_NAME		"teeh"
+#define OPTEE_CORE_IMAGE_NAME		"teex"
 #define OPTEE_PAGED_IMAGE_NAME		"teed"
-#define OPTEE_PAGER_IMAGE_NAME		"teex"
 #define OPTEE_HEADER_BINARY_TYPE	U(0x20)
-#define OPTEE_PAGER_BINARY_TYPE		U(0x21)
+#define OPTEE_CORE_BINARY_TYPE		U(0x21)
 #define OPTEE_PAGED_BINARY_TYPE		U(0x22)
 #endif
 
 /* SSBL = second stage boot loader */
 #define BL33_IMAGE_NAME			"ssbl"
 #define BL33_BINARY_TYPE		U(0x0)
+#else /* STM32MP_USE_STM32IMAGE */
+#define FIP_IMAGE_NAME			"fip"
+#endif /* STM32MP_USE_STM32IMAGE */
 
 #define STM32MP_PRIMARY_CPU		U(0x0)
 #define STM32MP_SECONDARY_CPU		U(0x1)
@@ -64,13 +68,25 @@
 #define BL2_LIMIT			(STM32MP_BL2_BASE + \
 					 STM32MP_BL2_SIZE)
 
+#define BL2_RO_BASE			STM32MP_BL2_RO_BASE
+#define BL2_RO_LIMIT			(STM32MP_BL2_RO_BASE + \
+					 STM32MP_BL2_RO_SIZE)
+
+#define BL2_RW_BASE			STM32MP_BL2_RW_BASE
+#define BL2_RW_LIMIT			(STM32MP_BL2_RW_BASE + \
+					 STM32MP_BL2_RW_SIZE)
 /*******************************************************************************
  * BL32 specific defines.
  ******************************************************************************/
-#ifndef AARCH32_SP_OPTEE
+#if STM32MP_USE_STM32IMAGE || defined(IMAGE_BL32)
+#if ENABLE_PIE
+#define BL32_BASE			0
+#define BL32_LIMIT			STM32MP_BL32_SIZE
+#else
 #define BL32_BASE			STM32MP_BL32_BASE
 #define BL32_LIMIT			(STM32MP_BL32_BASE + \
 					 STM32MP_BL32_SIZE)
+#endif
 #endif
 
 /*******************************************************************************
@@ -82,6 +98,12 @@
  * Load address of BL33 for this platform port
  */
 #define PLAT_STM32MP_NS_IMAGE_OFFSET	BL33_BASE
+
+/* Needed by STM32CubeProgrammer support */
+#define FLASHLAYOUT_BASE		STM32MP_DDR_BASE
+#define FLASHLAYOUT_SIZE		0x00100000
+#define DWL_BUFFER_BASE			(STM32MP_DDR_BASE + 0x08000000)
+#define DWL_BUFFER_SIZE			0x08000000
 
 /*******************************************************************************
  * DTB specific defines.
@@ -113,6 +135,8 @@
  */
 #define ARM_IRQ_SEC_PHY_TIMER		U(29)
 
+#define ARM_IRQ_NON_SEC_SGI_0		U(0)
+
 #define ARM_IRQ_SEC_SGI_0		U(8)
 #define ARM_IRQ_SEC_SGI_1		U(9)
 #define ARM_IRQ_SEC_SGI_2		U(10)
@@ -122,7 +146,15 @@
 #define ARM_IRQ_SEC_SGI_6		U(14)
 #define ARM_IRQ_SEC_SGI_7		U(15)
 
+/* Platform IRQ Priority */
+#define STM32MP1_IRQ_RCC_SEC_PRIO	U(0x6)
+#define STM32MP_IRQ_SEC_SPI_PRIO	U(0x10)
+
 #define STM32MP1_IRQ_TZC400		U(36)
+#define STM32MP1_IRQ_MCU_SEV		U(176)
+#define STM32MP1_IRQ_RCC_WAKEUP		U(177)
+#define STM32MP1_IRQ_IWDG1		U(182)
+#define STM32MP1_IRQ_IWDG2		U(183)
 #define STM32MP1_IRQ_TAMPSERRS		U(229)
 #define STM32MP1_IRQ_AXIERRIRQ		U(244)
 
